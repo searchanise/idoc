@@ -3,7 +3,10 @@
 namespace OVAC\IDoc;
 
 use Faker\Factory;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Routing\Route;
+use Illuminate\Support\Arr;
+use Illuminate\Validation\ValidationRuleParser;
 use Mpociot\Reflection\DocBlock;
 use Mpociot\Reflection\DocBlock\Tag;
 use OVAC\IDoc\Tools\ResponseResolver;
@@ -44,13 +47,13 @@ class IDocGenerator
     public function processRoute(Route $route, array $rulesToApply = [])
     {
         $routeAction = $route->getAction();
-        list($class, $method) = explode('@', $routeAction['uses']);
+        [$class, $method] = explode('@', $routeAction['uses']);
         $controller = new ReflectionClass($class);
         $method = $controller->getMethod($method);
 
         $routeGroup = $this->getRouteGroup($controller, $method);
         $docBlock = $this->parseDocBlock($method);
-        $bodyParameters = $this->getBodyParametersFromDocBlock($docBlock['tags']);
+        $bodyParameters = $this->convertRouteValidationRules(Arr::undot($this->getRouteValidationRules($route)));
         $queryParameters = $this->getQueryParametersFromDocBlock($docBlock['tags']);
         $pathParameters = $this->getPathParametersFromDocBlock($docBlock['tags']);
         $content = ResponseResolver::getResponse($route, $docBlock['tags'], [
@@ -84,6 +87,58 @@ class IDocGenerator
     }
 
     /**
+     * @throws \ReflectionException
+     */
+    protected function getRouteValidationRules($route): array
+    {
+        $routeAction = $route->getAction();
+        [$class, $method] = explode('@', $routeAction['uses']);
+
+        $reflection = new ReflectionClass($class);
+        $reflectionMethod = $reflection->getMethod($method);
+
+        foreach ($reflectionMethod->getParameters() as $parameter) {
+            $parameterType = $parameter->getClass();
+            if (!is_null($parameterType) && class_exists($parameterType->name)) {
+                $className = $parameterType->name;
+
+                if (is_subclass_of($className, FormRequest::class)) {
+                    $parameterReflection = new $className;
+
+                    if (method_exists($parameterReflection, 'validator')) {
+                        return $parameterReflection->validator()->getRules();
+                    }
+
+                    return $parameterReflection->rules();
+                }
+            }
+        }
+
+        return [];
+    }
+
+    protected function convertRouteValidationRules($rules): array
+    {
+        return collect($rules)
+            ->mapWithKeys(function ($rule, $name) {
+                $availableTypes = ['integer', 'numeric', 'float', 'boolean', 'string', 'array', 'json',];
+                $exploded = array_flip(explode('|', $rule));
+                $required = (bool)Arr::pull($exploded, 'required', false);
+                $description = '';
+                $exploded = array_flip($exploded);
+
+                $value = $this->generateDummyValue(
+                    Arr::first(
+                        array_intersect($availableTypes, $exploded), null, 'string'
+                    )
+                );
+                $type = implode('|', $exploded);
+
+                return [$name => compact('type', 'description', 'required', 'value')];
+            })->toArray();
+    }
+
+    /**
      * @param array $tags
      *
      * @return array
@@ -98,11 +153,11 @@ class IDocGenerator
                 preg_match('/(.+?)\s+(.+?)\s+(required\s+)?(.*)/', $tag->getContent(), $content);
                 if (empty($content)) {
                     // this means only name and type were supplied
-                    list($name, $type) = preg_split('/\s+/', $tag->getContent());
+                    [$name, $type] = preg_split('/\s+/', $tag->getContent());
                     $required = false;
                     $description = '';
                 } else {
-                    list($_, $name, $type, $required, $description) = $content;
+                    [$_, $name, $type, $required, $description] = $content;
                     $description = trim($description);
                     if ($description == 'required' && empty(trim($required))) {
                         $required = $description;
@@ -112,7 +167,7 @@ class IDocGenerator
                 }
 
                 $type = $this->normalizeParameterType($type);
-                list($description, $example) = $this->parseDescription($description, $type);
+                [$description, $example] = $this->parseDescription($description, $type);
                 $value = is_null($example) ? $this->generateDummyValue($type) : $example;
 
                 return [$name => compact('type', 'description', 'required', 'value')];
@@ -136,11 +191,11 @@ class IDocGenerator
                 preg_match('/(.+?)\s+(.+?)\s+(required\s+)?(.*)/', $tag->getContent(), $content);
                 if (empty($content)) {
                     // this means only name and type were supplied
-                    list($name, $type) = preg_split('/\s+/', $tag->getContent());
+                    [$name, $type] = preg_split('/\s+/', $tag->getContent());
                     $required = false;
                     $description = '';
                 } else {
-                    list($_, $name, $type, $required, $description) = $content;
+                    [$_, $name, $type, $required, $description] = $content;
                     $description = trim($description);
                     if ($description == 'required' && empty(trim($required))) {
                         $required = $description;
@@ -150,7 +205,7 @@ class IDocGenerator
                 }
 
                 $type = $this->normalizeParameterType($type);
-                list($description, $example) = $this->parseDescription($description, $type);
+                [$description, $example] = $this->parseDescription($description, $type);
                 $value = is_null($example) ? $this->generateDummyValue($type) : $example;
 
                 return [$name => compact('type', 'description', 'required', 'value')];
@@ -221,11 +276,11 @@ class IDocGenerator
                 preg_match('/(.+?)\s+(.+?)\s+(required\s+)?(.*)/', $tag->getContent(), $content);
                 if (empty($content)) {
                     // this means only name and type were supplied
-                    list($name, $type) = preg_split('/\s+/', $tag->getContent());
+                    [$name, $type] = preg_split('/\s+/', $tag->getContent());
                     $required = false;
                     $description = '';
                 } else {
-                    list($_, $name, $type, $required, $description) = $content;
+                    [$_, $name, $type, $required, $description] = $content;
                     $description = trim($description);
                     if ($description == 'required' && empty(trim($required))) {
                         $required = $description;
@@ -235,7 +290,7 @@ class IDocGenerator
                 }
 
                 $type = $this->normalizeParameterType($type);
-                list($description, $example) = $this->parseDescription($description, $type);
+                [$description, $example] = $this->parseDescription($description, $type);
                 $value = is_null($example) ? $this->generateDummyValue($type) : $example;
 
                 return [$name => compact('type', 'description', 'required', 'value')];
@@ -276,11 +331,11 @@ class IDocGenerator
     {
         $faker = Factory::create();
         $fakes = [
-            'integer' => function () {
-                return rand(1, 20);
+            'integer' => function () use ($faker) {
+                return $faker->randomNumber();
             },
-            'number' => function () use ($faker) {
-                return $faker->randomFloat();
+            'numeric' => function () use ($faker) {
+                return $faker->randomElement(['42', 1337, 0x539, 02471, 0b10100111001, 1337e0, '02471', '1337e0', 9.1]);
             },
             'float' => function () use ($faker) {
                 return $faker->randomFloat();
@@ -289,12 +344,12 @@ class IDocGenerator
                 return $faker->boolean();
             },
             'string' => function () use ($faker) {
-                return $faker->asciify('************');
+                return $faker->word();
             },
             'array' => function () {
                 return '[]';
             },
-            'object' => function () {
+            'json' => function () {
                 return '{}';
             },
         ];
