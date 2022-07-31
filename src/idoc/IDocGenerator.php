@@ -6,7 +6,6 @@ use Faker\Factory;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Arr;
-use Illuminate\Validation\ValidationRuleParser;
 use Mpociot\Reflection\DocBlock;
 use Mpociot\Reflection\DocBlock\Tag;
 use OVAC\IDoc\Tools\ResponseResolver;
@@ -17,6 +16,7 @@ use ReflectionMethod;
 class IDocGenerator
 {
     use ParamHelpers;
+    private array $availableTypes = ['integer', 'numeric', 'float', 'boolean', 'string', 'array', 'json', 'image'];
 
     /**
      * @param Route $route
@@ -53,7 +53,7 @@ class IDocGenerator
 
         $routeGroup = $this->getRouteGroup($controller, $method);
         $docBlock = $this->parseDocBlock($method);
-        $bodyParameters = $this->convertRouteValidationRules(Arr::undot($this->getRouteValidationRules($route)));
+        $bodyParameters = $this->convertRouteValidationRules($this->getRouteValidationRules($route));
         $queryParameters = $this->getQueryParametersFromDocBlock($docBlock['tags']);
         $pathParameters = $this->getPathParametersFromDocBlock($docBlock['tags']);
         $content = ResponseResolver::getResponse($route, $docBlock['tags'], [
@@ -121,7 +121,10 @@ class IDocGenerator
     {
         return collect($rules)
             ->mapWithKeys(function ($rule, $name) {
-                $availableTypes = ['integer', 'numeric', 'float', 'boolean', 'string', 'array', 'json',];
+                if (is_array($rule)) {
+                    $rule = implode('|', array_map(static fn($item) => (string)$item, $rule));
+                }
+
                 $exploded = array_flip(explode('|', $rule));
                 $required = (bool)Arr::pull($exploded, 'required', false);
                 $description = '';
@@ -129,7 +132,7 @@ class IDocGenerator
 
                 $value = $this->generateDummyValue(
                     Arr::first(
-                        array_intersect($availableTypes, $exploded), null, 'string'
+                        array_intersect($this->availableTypes, $exploded), null, 'string'
                     )
                 );
                 $type = implode('|', $exploded);
@@ -351,6 +354,9 @@ class IDocGenerator
             },
             'json' => function () {
                 return '{}';
+            },
+            'image' => function () use ($faker) {
+                return $faker->image;
             },
         ];
 
