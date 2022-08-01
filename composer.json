@@ -1,5 +1,5 @@
 {
-    "name": "ovac/idoc",
+    "name": "searchanise/idoc",
     "license": "MIT",
     "description": "Generate beautiful API documentation from your Laravel application",
     "keywords": [
@@ -12,6 +12,10 @@
         {
             "name": "Victor Ariama (ovac4u)",
             "email": "iamovac@gmail.com"
+        },
+        {
+            "name": "Oleg Shabashov",
+            "email": "oleg.shabashov@searchanise.io"
         }
     ],
     "require": {
